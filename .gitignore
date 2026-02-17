@@ -1,0 +1,59 @@
+# ========================
+# 1. Sensitive data
+# ========================
+# It blocks the original files containing real athlete data.
+dados_base.csv
+dados_base_aumentados.csv
+dados_extras.csv
+dados_extras_aumentados.csv
+
+# Blocks Excel files that may contain raw data
+*.xlsx
+*.xls
+
+# ========================
+# 2. Python Environment
+# ========================
+# Ignore the virtual environment folder (venv)
+venv/
+.venv/
+env/
+.env
+
+# Ignores compiled files and Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ========================
+# 3. Jupyter Notebooks
+# ========================
+# Ignore automatic checkpoints (temporary saves).
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# ========================
+# 4. Systems and IDEs
+# ========================
+# System files (Mac/Windows)
+.DS_Store
+Thumbs.db
+
+# Editor Settings (VS Code, PyCharm)
+.vscode/
+.idea/
+
+# ========================
+# 5. Figures .PNG
+# ========================
+*.png
+
+# ========================
+# 6. Exceptions (Whitelist)
+# ========================
+# Ensure that the synthetic (secure) data is sent.
+
+!database/
+!database/*.csv
+!dataset_example_structure.csv
+!dataset_real_world_example.csv

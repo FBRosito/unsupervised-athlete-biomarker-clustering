@@ -9,29 +9,102 @@ This repository contains the source code, data augmentation pipelines, and valid
 
 ## 📌 Project Overview
 
-Traditional athlete monitoring often relies on univariate analysis (single biomarkers) or subjective questionnaires. This project proposes a **Multivariate Unsupervised Machine Learning Framework** to identify latent physiological states in athletes.
+Traditional athlete monitoring often relies on univariate analysis (single biomarkers) or subjective questionnaires. This project proposes a **Multivariate Unsupervised Machine Learning Framework** to identify latent physiological states in athletes without relying on labeled injury data.
 
-By analyzing **32 biomarkers** simultaneously (including Enzymatic, Hormonal, Inflammatory, and Metabolic markers), the framework provides a hierarchical decision-support system:
-* **Macro-View ($k=3$):** For Head Coaches (e.g., *Ready* vs. *Fatigued*).
+By analyzing **up to 32 biomarkers** simultaneously (Enzymatic, Hormonal, Inflammatory, and Metabolic), the framework provides a hierarchical decision-support system:
+* **Macro-View ($k=3$):** For Head Coaches (e.g., distinguishing *Ready* vs. *Fatigued*).
 * **Micro-View ($k=5$):** For Physiologists (e.g., distinguishing *Mechanical Damage* from *Metabolic Stress*).
-
-## 🚀 Key Features
-
-* **Robust Data Augmentation:** Implements a Regularized Gaussian Mixture Model (GMM) with diagonal covariance constraints to expand small datasets ($n=15 \to n=290$) without overfitting.
-* **Sensitivity Validation:** Proves the algorithm's ability to detect "Silent Risk" phenotypes (High Insulin/Homocysteine with Normal CK).
-* **Interpretable Dashboards:** Generates Heatmaps and PCA topologies to translate complex Z-scores into actionable insights.
-* **Privacy-Preserving:** Designed to work with anonymized seeds, ensuring compliance with GDPR/LGPD.
 
 ## 📂 Repository Structure
 
 ```text
 ├── notebooks/
-│   ├── 01_synthetic_augmentation_validation.ipynb  # Sensitivity analysis & GMM Robustness (The "Silent Risk" Proof)
-│   ├── 02_main_clustering_pipeline.ipynb           # Main analysis pipeline (K-Means/Hierarchical)
+│   ├── 01_Phase1_RealWorld_SmallSample_HCA.ipynb    # Real Cohort Analysis (n=22) using Hierarchical Clustering
+│   └── 02_Phase2_Sensitivity_Validation_SilentRisk.ipynb # Synthetic Cohort (n=290) & Silent Risk Detection
+│
+├── supplementary_studies/
+│   └── Supplementary_Comparison_RealData_KMeans.ipynb    # Comparison proving K-Means instability on small data
 │
 ├── utils/
-│   ├── generate_random_seed_data.py                # Utility script to generate safe mock data
+│   ├── generate_real_world_seed.py     # Generates mock data for Phase 1 (18 biomarkers)
+│   └── generate_random_seed_data.py    # Generates mock data for Phase 2 (32 biomarkers)
 │
-├── dataset_example_structure.csv                   # Synthetic seed file (Safe for public use)
-├── requirements.txt                                # Python dependencies
-└── README.md                                       # Project documentation
+├── database/                           # Folder where generated CSVs are stored
+│   ├── (dataset_real_world_example.csv)
+│   └── (dataset_example_structure.csv)
+│
+├── requirements.txt                    # Python dependencies
+└── README.md                           # Project documentation
+```
+
+## 🚀 Key Features & Methodology
+
+### Phase 1: Real-World Small Cohort ($n=22$)
+* **Challenge:** Small sample size prevents the use of density-based algorithms.
+* **Solution:** **Agglomerative Hierarchical Clustering (Ward's Linkage)**.
+* **Outcome:** Stable identification of physiological profiles and outlier detection using Dendrograms.
+
+### Phase 2: Scalability & Sensitivity ($n=290$)
+* **Challenge:** Validating the model's ability to detect subtle risks.
+* **Solution:** **Regularized Gaussian Mixture Models (GMM)** for data augmentation ($n=15 \to n=290$) followed by K-Means.
+* **Outcome:** Successful isolation of the **"Silent Risk"** phenotype (High Insulin/Homocysteine with Normal CK), which is typically missed by univariate monitoring.
+
+## 🛠️ Installation & Usage
+
+To replicate the study, follow these steps strictly to generate the necessary synthetic data.
+
+### 1. Clone and Install
+```bash
+git clone [git@github.com:FBRosito/unsupervised-athlete-biomarker-clustering.git](git@github.com:FBRosito/unsupervised-athlete-biomarker-clustering.git)
+cd unsupervised-athlete-biomarker-clustering
+
+# Create virtual environment (Optional but recommended)
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 2. ⚠️ Generate Data (Crucial Step)
+Since raw data is not shared for privacy reasons, **you must generate the synthetic "safe seeds"** for the notebooks to run.
+
+Run the following commands in your terminal:
+
+```bash
+# Generate Phase 1 Data (18 Biomarkers)
+python utils/generate_real_world_seed.py
+
+# Generate Phase 2 Data (32 Biomarkers)
+python utils/generate_random_seed_data.py
+```
+
+### 3. Run Analysis
+Launch Jupyter Notebook and navigate to the notebooks/ folder:
+
+```bash
+jupyter notebook
+```
+
+## 🔒 Data Privacy & Ethics
+
+Due to the sensitive nature of biological data from human subjects and ethical constraints (GDPR/LGPD), the **raw datasets containing real athlete biomarkers are not shared publicly**.
+
+To ensure reproducibility:
+1.  **Synthetic Seeds:** The repository uses statistically plausible mock data generated by the scripts in `utils/`.
+2.  **Identical Structure:** These files mirror the exact column structure and units of the real data, allowing the code to be audited and reused.
+
+*Researchers wishing to access the anonymized real datasets for meta-analysis may contact the corresponding author upon reasonable request and ethical approval*.
+
+## 👥 Authors
+
+* **Fernando Barcelos Rosito**
+* Sebastião De Jesus Menezes
+* Simone Ferreira Sturza
+* Adriana Seixas
+* Muriel Figueredo Franco
+
+**Affiliation:** Federal University of Health Sciences of Porto Alegre (UFCSPA), Brazil.
+
+---
+*This project is part of an initiative to bring Transparent AI to Sports Science.*

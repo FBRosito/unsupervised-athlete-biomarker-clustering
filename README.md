@@ -102,7 +102,7 @@ To ensure reproducibility:
 * Sebastião De Jesus Menezes
 * Simone Ferreira Sturza
 * Adriana Seixas
-* Muriel Figueredo Franco
+* **Muriel Figueredo Franco**
 
 **Affiliation:** Federal University of Health Sciences of Porto Alegre (UFCSPA), Brazil.
 

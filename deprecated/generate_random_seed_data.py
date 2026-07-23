@@ -1,4 +1,20 @@
 """
+DEPRECATED as of the post-review methodological revision. Preserved for transparency, not
+recommended for new use.
+
+This script fed the GMM-based synthetic-augmentation pipeline (dataset_example_structure.csv
+-> 02_Phase2_Sensitivity_Validation.ipynb, also moved to deprecated/). A post-submission
+reanalysis found that augmentation pipeline's results were not stable across the augmentation
+model's own random initialization, and could not be traced to a documented, justified
+seed-construction methodology -- see Section 5.1 ("Why Unsupervised Clustering Fails in Small
+Biomarker Cohorts") of the revised manuscript for the finding, and the `v1-original-submission`
+git tag for the exact code state this script was originally part of.
+
+The current recommended pipeline (outlier screening + literature-informed evidence combination,
+no synthetic augmentation of any kind) lives in notebooks/v2_reanalysis/ -- see README.md.
+
+--- Original docstring below, unchanged ---
+
 UTILITY SCRIPT: Generate Synthetic Seed Data
 -------------------------------------------
 This script generates a 'mock' dataset with the exact structure (columns and units)

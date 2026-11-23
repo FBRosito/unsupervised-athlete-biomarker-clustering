@@ -101,7 +101,13 @@ CRP_ASSAY_FLOOR_MG_L = 0.05
 
 REFERENCES = {
     "CK": {"n_reference": 182, "log_mu": float(np.log(np.sqrt(83 * 1492))),
-           "log_sd": float((np.log(1492) - np.log(83)) / (2 * 1.96))},
+           "log_sd": float((np.log(1492) - np.log(83)) / (2 * 1.96)),
+           # Mougios (2007) reports a 95% CI for each limit itself (lower 83, CI 53-84; upper
+           # 1492, CI 924-1908) -- these are used directly below for bootstrap SEs, in place of
+           # a generic sqrt(n)-based formula that would assume log_mu/log_sd were a parametric
+           # sample mean/SD, which they are not (the interval is a non-parametric percentile
+           # estimate; see module docstring).
+           "lower_ci": (53.0, 84.0), "upper_ci": (924.0, 1908.0)},
     "CRP_fold": {"log_mu": float(np.log(np.sqrt(1.5 * 3.0))),
                  "log_sd": float((np.log(3.0) - np.log(1.5)) / (2 * 1.96))},
 }
@@ -113,6 +119,21 @@ DEFAULT_WEIGHTS = {"CK": 1.0, "CRP_fold": 1.0}
 
 def one_sided_z(value, log_mu, log_sd):
     return np.maximum((np.log(value) - log_mu) / log_sd, 0.0)
+
+
+def published_ci_log_mu_sd_se(ref):
+    """Derives SE(log_mu), SE(log_sd) from the reference paper's OWN published 95% CIs for the
+    lower and upper limit estimates, by error propagation (log_mu = mean of the two log-limits,
+    log_sd = their half-difference / 1.96), treating the two limit estimates as independent --
+    the paper reports no covariance between them, and they come from opposite tails of the same
+    non-parametric percentile estimation. This replaces a generic sqrt(n)-based formula that
+    understated uncertainty by assuming the non-parametric percentile interval was instead a
+    parametric sample mean/SD (see module docstring)."""
+    se_ln_lower = (np.log(ref["lower_ci"][1]) - np.log(ref["lower_ci"][0])) / (2 * 1.96)
+    se_ln_upper = (np.log(ref["upper_ci"][1]) - np.log(ref["upper_ci"][0])) / (2 * 1.96)
+    se_log_mu = 0.5 * np.sqrt(se_ln_lower**2 + se_ln_upper**2)
+    se_log_sd = (se_ln_lower**2 + se_ln_upper**2) ** 0.5 / (2 * 1.96)
+    return se_log_mu, se_log_sd
 
 
 def weighted_composite(Z, weights):
@@ -198,10 +219,9 @@ def main():
 
     rng = np.random.default_rng(args.random_state)
     ck_ref = REFERENCES["CK"]
+    se_mu, se_sd = published_ci_log_mu_sd_se(ck_ref)
     boot_n_above = []
     for _ in range(args.n_bootstrap):
-        se_mu = ck_ref["log_sd"] / np.sqrt(ck_ref["n_reference"])
-        se_sd = ck_ref["log_sd"] / np.sqrt(2 * max(ck_ref["n_reference"] - 1, 1))
         mu_b = rng.normal(ck_ref["log_mu"], se_mu)
         sd_b = max(rng.normal(ck_ref["log_sd"], se_sd), 1e-3)
         z_b = one_sided_z(ck_val, mu_b, sd_b)

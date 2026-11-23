@@ -55,7 +55,8 @@ from scipy.stats import norm
 # ---- Copied verbatim from notebooks/v2_reanalysis/04_probabilistic_evidence_score.py ----
 REFERENCES = {
     "CK": {"n_reference": 182, "log_mu": float(np.log(np.sqrt(83 * 1492))),
-           "log_sd": float((np.log(1492) - np.log(83)) / (2 * 1.96))},
+           "log_sd": float((np.log(1492) - np.log(83)) / (2 * 1.96)),
+           "lower_ci": (53.0, 84.0), "upper_ci": (924.0, 1908.0)},
     "CRP_fold": {"log_mu": float(np.log(np.sqrt(1.5 * 3.0))),
                  "log_sd": float((np.log(3.0) - np.log(1.5)) / (2 * 1.96))},
 }
@@ -65,6 +66,17 @@ ATTENTION_CUTOFF = norm.ppf(0.95)
 
 def one_sided_z(value, log_mu, log_sd):
     return np.maximum((np.log(value) - log_mu) / log_sd, 0.0)
+
+
+def published_ci_log_mu_sd_se(ref):
+    """See 04_probabilistic_evidence_score.py's identically-named function: derives SE(log_mu),
+    SE(log_sd) from the reference paper's own published 95% CIs for the lower/upper limits,
+    rather than a generic sqrt(n)-based formula that would understate uncertainty."""
+    se_ln_lower = (np.log(ref["lower_ci"][1]) - np.log(ref["lower_ci"][0])) / (2 * 1.96)
+    se_ln_upper = (np.log(ref["upper_ci"][1]) - np.log(ref["upper_ci"][0])) / (2 * 1.96)
+    se_log_mu = 0.5 * np.sqrt(se_ln_lower**2 + se_ln_upper**2)
+    se_log_sd = (se_ln_lower**2 + se_ln_upper**2) ** 0.5 / (2 * 1.96)
+    return se_log_mu, se_log_sd
 
 
 def weighted_composite(Z, weights):
@@ -131,10 +143,9 @@ for sid, val in composite_primary.sort_values(ascending=False).items():
 rng = np.random.default_rng(42)
 n_bootstrap = 3000
 ck_ref = REFERENCES["CK"]
+se_mu, se_sd = published_ci_log_mu_sd_se(ck_ref)
 boot_n_above = []
 for _ in range(n_bootstrap):
-    se_mu = ck_ref["log_sd"] / np.sqrt(ck_ref["n_reference"])
-    se_sd = ck_ref["log_sd"] / np.sqrt(2 * max(ck_ref["n_reference"] - 1, 1))
     mu_b = rng.normal(ck_ref["log_mu"], se_mu)
     sd_b = max(rng.normal(ck_ref["log_sd"], se_sd), 1e-3)
     z_b = one_sided_z(ck_max, mu_b, sd_b)

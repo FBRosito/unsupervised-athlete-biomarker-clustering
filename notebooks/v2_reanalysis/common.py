@@ -76,9 +76,8 @@ def _resolve(df, canonical):
 def load_cohort(data_path):
     """
     Loads a biomarker cohort CSV (real or the public synthetic demo) and returns a numeric
-    feature matrix with standardized column names, matching the preprocessing already used in
-    notebooks/01_Phase1_RealWorld_SmallSample_HCA.ipynb (comma-decimal handling, blood-pressure
-    splitting, median imputation of missing values).
+    feature matrix with standardized column names (comma-decimal handling, blood-pressure
+    splitting into systolic/diastolic, median imputation of missing values).
     """
     raw = pd.read_csv(data_path)
     resolved = {canonical: _resolve(raw, canonical) for canonical in COLUMN_ALIASES}
@@ -93,8 +92,10 @@ def load_cohort(data_path):
     if raw[bp_col].dtype == object:
         temp = raw[bp_col].astype(str).str.split("/", expand=True)
         out["BP_Systolic"] = pd.to_numeric(temp[0], errors="coerce")
+        out["BP_Diastolic"] = pd.to_numeric(temp[1], errors="coerce") if temp.shape[1] > 1 else np.nan
     else:
         out["BP_Systolic"] = raw[bp_col]
+        out["BP_Diastolic"] = np.nan
 
     out = out.fillna(out.median())
     return out, raw

@@ -40,25 +40,39 @@ Evidence sources (see manuscript Section 2.4 for full detail and uncertainty pro
 - CRP: Perez-Castillo IM et al. Front Physiol. 2023;14:1167449 (review synthesizing Ispirlidis
   2008, Silva 2013, Souglis 2015b, Mohr 2016, Romagnoli 2016, Fransson 2018, Daab 2021, Duarte
   2022): CRP peaks ~24h post-match at 1.5-3x baseline (fold-change from each subject's own
-  Pre-match value).
+  Pre-match value). The "8" in that list is a STUDY count, not a subject-level sample size, and
+  is NOT used as a statistical n anywhere below (see "CRP is diagnostic only", next).
 - The acute testosterone/cortisol ratio is intentionally EXCLUDED as risk evidence: an acute
   Pre->24h decline was established (Section 2.3/results Section 3.4) to be an expected recovery
   response, not a risk signal, absent new justification.
 
-Assay-floor check: if a large fraction of PCR_Pre values sit exactly at the sample minimum
-(consistent with an assay's limit of quantification), the CRP fold-change term is numerically
-unstable for those subjects (dividing by a censored near-floor value). This is detected
-dynamically (not hardcoded to any one dataset's specific floor value) and, when triggered, two
-composites are reported side by side: the full composite (CK+CRP) and a CK-only composite
-recommended for interpretation.
+CRP is diagnostic only, never primary: the primary composite is CK's one-sided z-score, used
+alone, unconditionally (manuscript Section 2.4). This is a fixed, pre-specified choice, not a
+decision made by inspecting this cohort's CRP behavior. An earlier version of this script instead
+picked between a "CK-only" and a "full (CK+CRP)" composite at runtime, based on whether CRP_Pre
+values clustered at the assay floor, and labelled whichever was picked "recommended". That
+runtime selection no longer exists: it could, for a cohort whose CRP behaves badly for a reason
+this heuristic does not catch (e.g. generally low baselines inflating the fold-change, rather
+than floor-censoring -- see the external cohort script), silently select the full composite as
+"primary" while the written methodology always intended CK alone. The full composite is still
+computed and reported, for transparency, but never as "the" result. Correspondingly, the CRP
+term's reference parameters are used to compute its z-score, but are NOT bootstrapped: with no
+real subject-level sample size behind the "1.5-3x" summary, treating its study-count as a
+bootstrap n would manufacture a false sense of statistical precision for a term this script does
+not rely on for its primary conclusion.
 
-Combination: given the absence of a statistically defensible covariance structure in this
-cohort (Section 2.3), CK and CRP evidence is combined under an explicit assumption of
-conditional independence when both are usable. No citable numeric CK:CRP weighting ratio was
-found in the literature; per this project's standing rule ("no citation -> non-informative
-default, not an invented plausible number"), this script therefore uses EQUAL weights (1:1) by
-default -- a --ck-weight / --crp-weight pair is exposed below so a specific ratio can be applied
-once one is sourced.
+Assay-floor check: if a large fraction of CRP_Pre values sit at the assay's documented
+quantification limit, the CRP fold-change term is numerically unstable for those subjects
+(dividing by a censored near-floor value). This is reported descriptively; it does not change
+which composite is primary (see above).
+
+Combination (full composite only): given the absence of a statistically defensible covariance
+structure in this cohort (Section 2.3), CK and CRP evidence is combined under an explicit
+assumption of conditional independence. No citable numeric CK:CRP weighting ratio was found in
+the literature; per this project's standing rule ("no citation -> non-informative default, not an
+invented plausible number"), this script therefore uses EQUAL weights (1:1) by default -- a
+--ck-weight / --crp-weight pair is exposed below so a specific ratio can be applied once one is
+sourced.
 [PENDING CITATION: precise numeric CK:CRP importance ratio, if one exists in the literature.]
 
 By default this runs against the public synthetic demo dataset (see common.py) and will NOT
@@ -78,10 +92,17 @@ from common import get_arg_parser, load_cohort, _resolve, _to_float
 
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "results_v2"))
 
+# Documented assay quantification limit for CRP in this cohort (Results Section 3.1: "Ten
+# athletes sat at the assay's apparent quantification limit (0.05 mg/L)"). Used as the
+# fold-change denominator floor so this value is an externally-documented assay property, not a
+# parameter fitted from the evaluated sample (it happens to equal this cohort's observed minimum,
+# but is not derived from it).
+CRP_ASSAY_FLOOR_MG_L = 0.05
+
 REFERENCES = {
     "CK": {"n_reference": 182, "log_mu": float(np.log(np.sqrt(83 * 1492))),
            "log_sd": float((np.log(1492) - np.log(83)) / (2 * 1.96))},
-    "CRP_fold": {"n_reference": 8, "log_mu": float(np.log(np.sqrt(1.5 * 3.0))),
+    "CRP_fold": {"log_mu": float(np.log(np.sqrt(1.5 * 3.0))),
                  "log_sd": float((np.log(3.0) - np.log(1.5)) / (2 * 1.96))},
 }
 # Relative importance weights: NO citable numeric ratio found (see module docstring). Equal
@@ -102,12 +123,14 @@ def weighted_composite(Z, weights):
 def main():
     parser = get_arg_parser(__doc__)
     parser.add_argument("--n-bootstrap", type=int, default=3000,
-                         help="Bootstrap draws over REFERENCE-source uncertainty (not over the "
-                              "evaluated sample).")
+                         help="Bootstrap draws over CK's reference-source uncertainty only (not "
+                              "over the evaluated sample, and not over CRP -- see module "
+                              "docstring).")
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--floor-fraction-threshold", type=float, default=0.3,
-                         help="If this fraction (or more) of CRP_Pre values equal the sample "
-                              "minimum, the CRP term is flagged as an assay-floor artifact.")
+                         help="If this fraction (or more) of CRP_Pre values sit at the assay "
+                              "floor, the CRP term is flagged as unstable (descriptive only; "
+                              "does not change which composite is primary).")
     parser.add_argument("--ck-weight", type=float, default=DEFAULT_WEIGHTS["CK"],
                          help="CK relative weight (default 1.0 = equal weighting; no citable "
                               "numeric ratio was found -- see module docstring).")
@@ -136,22 +159,23 @@ def main():
     crp_pre_col = _resolve(raw, "CRP_Pre")
     crp_pre_raw = _to_float(raw[crp_pre_col]) if raw[crp_pre_col].dtype == object else raw[crp_pre_col]
     n_missing_crp_pre = int(crp_pre_raw.isna().sum())
-    crp_pre_true_min = crp_pre_raw.min()
-    n_at_floor = int((crp_pre_raw == crp_pre_true_min).sum())
+    n_at_floor = int((crp_pre_raw == CRP_ASSAY_FLOOR_MG_L).sum())
     frac_at_floor = n_at_floor / n
     crp_floor_flag = frac_at_floor >= args.floor_fraction_threshold
     # crp_val below still uses the median-imputed X for the 4 missing-data subjects (giving them
     # a value equal to the floor) -- acceptable ONLY because this FULL composite is documented as
-    # not used for interpretation (see module docstring); the CK-only composite is unaffected.
-    crp_val = X["CRP_24h"] / X["CRP_Pre"].clip(lower=max(crp_pre_true_min, 1e-3))
+    # not used for interpretation (see module docstring); the primary (CK-only) composite is
+    # unaffected. The clip floor is the documented assay limit, not this sample's own minimum.
+    crp_val = X["CRP_24h"] / X["CRP_Pre"].clip(lower=CRP_ASSAY_FLOOR_MG_L)
 
     print(f"n={n}")
     print(f"LDH (descriptive only, not classified): mean={ldh_descriptive['mean']:.1f} "
           f"median={ldh_descriptive['median']:.1f} SD={ldh_descriptive['sd']:.1f} "
           f"range=[{ldh_descriptive['min']:.1f}, {ldh_descriptive['max']:.1f}]")
-    print(f"CRP_Pre: {n_at_floor}/{n} at assay floor ({crp_pre_true_min}), "
+    print(f"CRP_Pre: {n_at_floor}/{n} at assay floor ({CRP_ASSAY_FLOOR_MG_L} mg/L), "
           f"{n_missing_crp_pre}/{n} missing (pre-imputation) -> "
-          f"floor fraction {frac_at_floor*100:.1f}% flagged unstable: {crp_floor_flag}")
+          f"floor fraction {frac_at_floor*100:.1f}% flagged unstable: {crp_floor_flag} "
+          f"(descriptive only, does not change the primary composite)")
 
     Z = pd.DataFrame({
         "CK": one_sided_z(ck_val, REFERENCES["CK"]["log_mu"], REFERENCES["CK"]["log_sd"]),
@@ -161,35 +185,31 @@ def main():
     weights_full = {c: weights_cfg[c] for c in Z.columns}
 
     composite_full = weighted_composite(Z, weights_full)
-    composite_ck_only = Z["CK"]
-    composite_primary = composite_ck_only if crp_floor_flag else composite_full
+    # Primary composite is always CK alone -- a fixed, pre-specified choice (manuscript Section
+    # 2.4), never selected at runtime based on this cohort's CRP behavior.
+    composite_primary = Z["CK"]
 
     n_above_full = int((composite_full > ATTENTION_CUTOFF).sum())
-    n_above_ck_only = int((composite_ck_only > ATTENTION_CUTOFF).sum())
-    print(f"\nComposite FULL (CK+CRP): mean={composite_full.mean():.3f}, "
+    n_above_primary = int((composite_primary > ATTENTION_CUTOFF).sum())
+    print(f"\nPrimary composite (CK alone): mean={composite_primary.mean():.3f}, "
+          f"above cutoff={n_above_primary}/{n}")
+    print(f"Full composite (CK+CRP, diagnostic only): mean={composite_full.mean():.3f}, "
           f"above cutoff={n_above_full}/{n}")
-    print(f"Composite CK only: mean={composite_ck_only.mean():.3f}, "
-          f"above cutoff={n_above_ck_only}/{n}")
-    print(f"Recommended primary composite: {'CK only' if crp_floor_flag else 'FULL'}")
 
     rng = np.random.default_rng(args.random_state)
+    ck_ref = REFERENCES["CK"]
     boot_n_above = []
     for _ in range(args.n_bootstrap):
-        z_b = {}
-        for name, ref in REFERENCES.items():
-            se_mu = ref["log_sd"] / np.sqrt(ref["n_reference"])
-            se_sd = ref["log_sd"] / np.sqrt(2 * max(ref["n_reference"] - 1, 1))
-            mu_b = rng.normal(ref["log_mu"], se_mu)
-            sd_b = max(rng.normal(ref["log_sd"], se_sd), 1e-3)
-            val = {"CK": ck_val, "CRP_fold": crp_val}[name]
-            z_b[name] = one_sided_z(val, mu_b, sd_b)
-        Zb = pd.DataFrame(z_b)
-        comp_b = Zb["CK"] if crp_floor_flag else weighted_composite(Zb, weights_full)
-        boot_n_above.append(int((comp_b > ATTENTION_CUTOFF).sum()))
+        se_mu = ck_ref["log_sd"] / np.sqrt(ck_ref["n_reference"])
+        se_sd = ck_ref["log_sd"] / np.sqrt(2 * max(ck_ref["n_reference"] - 1, 1))
+        mu_b = rng.normal(ck_ref["log_mu"], se_mu)
+        sd_b = max(rng.normal(ck_ref["log_sd"], se_sd), 1e-3)
+        z_b = one_sided_z(ck_val, mu_b, sd_b)
+        boot_n_above.append(int((z_b > ATTENTION_CUTOFF).sum()))
 
     boot_n_above = np.array(boot_n_above)
     ci_lo, ci_hi = np.percentile(boot_n_above, [2.5, 97.5])
-    print(f"\nBootstrap over reference-source uncertainty ({args.n_bootstrap} draws): "
+    print(f"\nBootstrap over CK's reference-source uncertainty only ({args.n_bootstrap} draws): "
           f"median n above cutoff={np.median(boot_n_above):.0f}, 95% CI=[{ci_lo:.0f}, {ci_hi:.0f}]")
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -198,10 +218,9 @@ def main():
         "attention_cutoff_z": float(ATTENTION_CUTOFF),
         "ldh_descriptive_not_classified": ldh_descriptive,
         "crp_floor_check": {"fraction_at_floor": float(frac_at_floor), "flagged": bool(crp_floor_flag)},
-        "composite_full": {"mean": float(composite_full.mean()), "n_above_cutoff": n_above_full},
-        "composite_ck_only": {"mean": float(composite_ck_only.mean()), "n_above_cutoff": n_above_ck_only},
-        "recommended_primary": "ck_only" if crp_floor_flag else "full",
-        "bootstrap_n_above_cutoff": {
+        "composite_primary_ck_only": {"mean": float(composite_primary.mean()), "n_above_cutoff": n_above_primary},
+        "composite_full_diagnostic": {"mean": float(composite_full.mean()), "n_above_cutoff": n_above_full},
+        "bootstrap_n_above_cutoff_ck_only": {
             "median": float(np.median(boot_n_above)), "ci95": [float(ci_lo), float(ci_hi)],
         },
     }

@@ -64,12 +64,16 @@ def generate_data():
             elif 'FC' in col:
                 val = np.random.uniform(45, 70, N_ATHLETES)
             elif 'Pressão' in col:
-                val = np.random.uniform(110, 130, N_ATHLETES)
+                # Systolic/diastolic pair, same "SSS/DDD" string format as the real cohort file.
+                systolic = np.random.uniform(110, 135, N_ATHLETES)
+                diastolic = np.random.uniform(65, 90, N_ATHLETES)
+                data[col] = [f"{s:.0f}/{d:.0f}" for s, d in zip(systolic, diastolic)]
+                continue
             elif 'Oximetria' in col:
                 val = np.random.uniform(96, 99, N_ATHLETES)
             else:
                 val = np.random.uniform(10, 100, N_ATHLETES)
-            
+
             data[col] = np.round(val, 2)
 
     df = pd.DataFrame(data)

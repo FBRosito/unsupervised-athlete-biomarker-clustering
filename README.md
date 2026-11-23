@@ -1,110 +1,94 @@
-# An Unsupervised Decision-Support Framework for Multivariate Biomarker Analysis in Athlete Monitoring
+# When Unsupervised Clustering Fails: A Knowledge-Based Alternative for Biomarker Analysis in Small Athlete Cohorts
 
 [![Python 3.13](https://img.shields.io/badge/Python-3.13-blue.svg?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3130/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://GitHub.com/FBRosito/unsupervised-athlete-biomarker-clustering/graphs/commit-activity)
 [![Open Science](https://img.shields.io/badge/Open-Science-success)](https://en.wikipedia.org/wiki/Open_science)
 
-This repository contains the source code, data augmentation pipelines, and validation notebooks associated with the research paper: **"An Unsupervised Decision-Support Framework for Multivariate Biomarker Analysis in Athlete Monitoring"**.
+This repository contains the analysis pipeline for the manuscript **"When Unsupervised Clustering Fails: A Knowledge-Based Alternative for Biomarker Analysis in Small Athlete Cohorts"**, submitted to *Computer Methods and Programs in Biomedicine*.
 
-## 📌 Project Overview
+## Overview
 
-Traditional athlete monitoring often relies on univariate analysis (single biomarkers) or subjective questionnaires. This project proposes a **Multivariate Unsupervised Machine Learning Framework** to identify latent physiological states in athletes without relying on labeled injury data.
+Athlete monitoring with blood biomarkers routinely operates on small cohorts (often fewer than 20–30 athletes). This project:
 
-By analyzing **up to 32 biomarkers** simultaneously (Enzymatic, Hormonal, Inflammatory, and Metabolic), the framework provides a hierarchical decision-support system:
-* **Macro-View ($k=3$):** For Head Coaches (e.g., distinguishing *Ready* vs. *Fatigued*).
-* **Micro-View ($k=5$):** For Physiologists (e.g., distinguishing *Mechanical Damage* from *Metabolic Stress*).
+1. **Tests directly**, rather than assumes, whether unsupervised structure discovery (clustering) is statistically defensible at this sample size, using two independent methods: Ward hierarchical clustering (across four validity indices) and a Bayesian nonparametric mixture model (tested for component-count convergence).
+2. **Proposes an alternative** when it is not: a literature-informed evidence-combination score that classifies athletes against externally published, population-matched reference distributions (creatine kinase and C-reactive protein), estimating no parameter from the evaluated cohort.
+3. **Validates this classification** on an independent external cohort (a second, publicly published dataset), without refitting any parameter.
 
-## 📂 Repository Structure
+An earlier version of this project used unsupervised clustering with synthetic-data augmentation as its primary contribution. A post-submission reanalysis found that pipeline's results unstable and not statistically supported at this sample size; it is preserved, unmodified, under the git tag [`v1-original-submission`](../../releases/tag/v1-original-submission) for transparency, but is **not** part of the current, recommended pipeline below.
+
+## Repository Structure
 
 ```text
-├── notebooks/
-│   ├── 01_Phase1_RealWorld_SmallSample_HCA.ipynb    # Real Cohort Analysis (n=22) using Hierarchical Clustering
-│   └── 02_Phase2_Sensitivity_Validation_SilentRisk.ipynb # Synthetic Cohort (n=290) & Silent Risk Detection
+├── notebooks/v2_reanalysis/
+│   ├── common.py                              # Shared data loader (no hardcoded/real paths)
+│   ├── 01_outlier_screening_mahalanobis_pca.py # PCA-reduced Mahalanobis outlier screening
+│   ├── 02_ward_clustering_validity_indices.py  # Ward + Silhouette/Calinski-Harabasz/Davies-Bouldin/Gap
+│   ├── 03_bayesian_mixture_convergence.py      # BayesianGaussianMixture, component-ceiling convergence test
+│   └── 04_probabilistic_evidence_score.py      # Literature-informed evidence-combination score
 │
-├── supplementary_studies/
-│   └── Supplementary_Comparison_RealData_KMeans.ipynb    # Comparison proving K-Means instability on small data
+├── external_validation/
+│   ├── external_validation_anchor.py      # Applies the same scoring logic to an independent external cohort
+│   └── metabolites_external_cohort.csv    # Public data (Du et al., Metabolites 16(6):370, 2026)
 │
 ├── utils/
-│   ├── generate_real_world_seed.py     # Generates mock data for Phase 1 (18 biomarkers)
-│   └── generate_random_seed_data.py    # Generates mock data for Phase 2 (32 biomarkers)
+│   └── generate_real_world_seed.py   # Generates the public synthetic demo dataset below
 │
-├── database/                           # Folder where generated CSVs are stored
-│   ├── (dataset_real_world_example.csv)
-│   └── (dataset_example_structure.csv)
+├── database/
+│   └── dataset_real_world_example.csv   # Synthetic demo dataset (see Data Availability below)
 │
-├── requirements.txt                    # Python dependencies
-└── README.md                           # Project documentation
+├── requirements.txt
+└── README.md
 ```
 
-## 🚀 Key Features & Methodology
+## Installation
 
-### Phase 1: Real-World Small Cohort ($n=22$)
-* **Challenge:** Small sample size prevents the use of density-based algorithms.
-* **Solution:** **Agglomerative Hierarchical Clustering (Ward's Linkage)**.
-* **Outcome:** Stable identification of physiological profiles and outlier detection using Dendrograms.
-
-### Phase 2: Scalability & Sensitivity ($n=290$)
-* **Challenge:** Validating the model's ability to detect subtle risks.
-* **Solution:** **Regularized Gaussian Mixture Models (GMM)** for data augmentation ($n=15 \to n=290$) followed by K-Means.
-* **Outcome:** Successful isolation of the **"Silent Risk"** phenotype (High Insulin/Homocysteine with Normal CK), which is typically missed by univariate monitoring.
-
-## 🛠️ Installation & Usage
-
-To replicate the study, follow these steps strictly to generate the necessary synthetic data.
-
-### 1. Clone and Install
 ```bash
-git clone [git@github.com:FBRosito/unsupervised-athlete-biomarker-clustering.git](git@github.com:FBRosito/unsupervised-athlete-biomarker-clustering.git)
+git clone https://github.com/FBRosito/unsupervised-athlete-biomarker-clustering.git
 cd unsupervised-athlete-biomarker-clustering
-
-# Create virtual environment (Optional but recommended)
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 2. ⚠️ Generate Data (Crucial Step)
-Since raw data is not shared for privacy reasons, **you must generate the synthetic "safe seeds"** for the notebooks to run.
+## Running the Pipeline
 
-Run the following commands in your terminal:
+Each script in `notebooks/v2_reanalysis/` defaults to `database/dataset_real_world_example.csv`, a synthetic dataset that mirrors the real cohort's column structure but **does not reproduce the manuscript's numbers** (see Data Availability below). Pass `--data-path` to point at a real cohort file with the same column structure.
 
 ```bash
-# Generate Phase 1 Data (18 Biomarkers)
+cd notebooks/v2_reanalysis
+python 01_outlier_screening_mahalanobis_pca.py
+python 02_ward_clustering_validity_indices.py
+python 03_bayesian_mixture_convergence.py
+python 04_probabilistic_evidence_score.py
+```
+
+Results are written to `results_v2/` (not versioned; regenerated on each run).
+
+To regenerate the public synthetic demo dataset itself:
+
+```bash
 python utils/generate_real_world_seed.py
-
-# Generate Phase 2 Data (32 Biomarkers)
-python utils/generate_random_seed_data.py
 ```
 
-### 3. Run Analysis
-Launch Jupyter Notebook and navigate to the notebooks/ folder:
+### External validation
 
 ```bash
-jupyter notebook
+cd external_validation
+python external_validation_anchor.py
 ```
 
-## 🔒 Data Privacy & Ethics
+This applies the exact same scoring logic (same reference parameters, same attention cutoff) to a second, independent, publicly published cohort, with no parameter refit — a genuine out-of-sample application. See the script's docstring for the data source.
 
-Due to the sensitive nature of biological data from human subjects and ethical constraints (GDPR/LGPD), the **raw datasets containing real athlete biomarkers are not shared publicly**.
+## Data Availability
 
-To ensure reproducibility:
-1.  **Synthetic Seeds:** The repository uses statistically plausible mock data generated by the scripts in `utils/`.
-2.  **Identical Structure:** These files mirror the exact column structure and units of the real data, allowing the code to be audited and reused.
+The biomarker measurements analyzed in the manuscript constitute sensitive health data under Brazilian law (LGPD) and are not publicly distributed. The study protocol was approved by the Institutional Research Ethics Committee of União Educacional do Norte (UNINORTE), number 5.159.860. This repository's code is public under an MIT license, together with a synthetic demonstration dataset (`database/dataset_real_world_example.csv`) that matches the real cohort's structure but not its values. Aggregate results may be shared with researchers upon reasonable request, subject to institutional and ethical approval.
 
-*Researchers wishing to access the anonymized real datasets for meta-analysis may contact the corresponding author upon reasonable request and ethical approval*.
+## Authors
 
-## 👥 Authors
-
-* **Fernando Barcelos Rosito**
+* Fernando Barcelos Rosito
 * Sebastião De Jesus Menezes
 * Simone Ferreira Sturza
 * Adriana Seixas
-* **Muriel Figueredo Franco**
+* Muriel Figueredo Franco
 
 **Affiliation:** Federal University of Health Sciences of Porto Alegre (UFCSPA), Brazil.
-
----
-*This project is part of an initiative to bring Transparent AI to Sports Science.*

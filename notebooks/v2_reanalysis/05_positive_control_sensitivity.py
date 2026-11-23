@@ -10,9 +10,16 @@ method has the power to detect structure at this n even when it is present?
 Method: starting from the real (or demo) cohort's own 19-feature matrix, we plant a known
 k=3 group structure by shifting a subset of features for 2 of 3 (deterministically, then
 randomly re-labelled) equal-sized groups by a fixed number of that feature's own real-data
-standard deviations. We then re-run the SAME Ward clustering (Silhouette, Calinski-Harabasz,
-Davies-Bouldin) and the SAME Bayesian nonparametric mixture convergence test used in scripts 02
-and 03, unchanged, against this planted-structure data, and report whether they detect it.
+standard deviations (PRE-shift SD; because the shift itself raises that column's own variance,
+the resulting separation in the re-standardized space the pipeline actually clusters on is
+substantially smaller than this nominal multiple -- e.g. a nominal 10-SD shift corresponds to
+roughly 1-2 SD post-standardization; see effective_separation_sd in the saved JSON). We then
+re-run Ward clustering, reporting the same three magnitude-based indices as script 02
+(Silhouette, Calinski-Harabasz, Davies-Bouldin; the Gap Statistic is NOT recomputed here), and
+the same Bayesian nonparametric mixture model as script 03, but at a single fixed component
+ceiling (not swept across 8/12/15/20 as script 03 does) chosen to match script 03's baseline
+ceiling for direct comparability. This is a deliberately narrower re-application of scripts 02
+and 03, not an unchanged, full re-run of either.
 
 Two scenarios are tested:
 - SPARSE: structure confined to 6 of 19 features (CK_Pre/Pos/24h, Cortisol_Pre/Pos/24h -- two
@@ -54,6 +61,7 @@ def plant_clusters(X, cols, shift_sd, rng, k=3):
     """Shift the given columns by shift_sd * (that column's own real-data SD) for 2 of 3
     equal-ish groups, on top of the real data. Returns the modified copy and the true labels."""
     Xc = X.copy()
+    Xc[cols] = Xc[cols].astype(float)  # avoid silent int-truncation of the shift (e.g. BP columns)
     n = len(Xc)
     labels = np.array([i % k for i in range(n)])
     rng.shuffle(labels)
@@ -62,6 +70,20 @@ def plant_clusters(X, cols, shift_sd, rng, k=3):
         for g in range(1, k):
             Xc.loc[labels == g, col] = Xc.loc[labels == g, col] + g * shift_sd * sd
     return Xc, labels
+
+
+def effective_separation_sd(Xc, cols, labels):
+    """Mean, across the planted columns, of the post-standardization separation between group 0
+    and group 1's means (in units of that column's OWN standard deviation after planting, i.e.
+    what the pipeline actually clusters on) -- as opposed to the nominal, pre-shift shift_sd
+    parameter, which overstates the real separation once the shift has inflated the column's own
+    variance."""
+    seps = []
+    for col in cols:
+        sd_post = Xc[col].std()
+        if sd_post > 0:
+            seps.append(abs(Xc.loc[labels == 1, col].mean() - Xc.loc[labels == 0, col].mean()) / sd_post)
+    return float(np.mean(seps))
 
 
 def ward_indices(Xc, k=3):
@@ -95,7 +117,10 @@ def main():
                               "SPARSE scenario.")
     parser.add_argument("--full-shift-sd", type=float, default=4,
                          help="Separation magnitude for the FULL (all-features) scenario.")
-    parser.add_argument("--bgm-ceiling", type=int, default=8)
+    parser.add_argument("--bgm-ceiling", type=int, default=8,
+                         help="A SINGLE fixed component-count ceiling (matching script 03's "
+                              "lowest/baseline ceiling), not swept across multiple ceilings as "
+                              "script 03 does.")
     parser.add_argument("--random-state", type=int, default=42)
     args = parser.parse_args()
 
@@ -115,35 +140,41 @@ def main():
     print(f"\n--- SPARSE: structure planted on {len(SPARSE_FEATURES)}/{p} features ---")
     sparse_results = {}
     for shift in args.shift_sds:
-        sils, chs, dbs, ks = [], [], [], []
+        sils, chs, dbs, ks, effs = [], [], [], [], []
         for _ in range(args.n_reps):
-            Xc, _ = plant_clusters(X, SPARSE_FEATURES, shift, rng)
+            Xc, labels = plant_clusters(X, SPARSE_FEATURES, shift, rng)
             sil, ch, db = ward_indices(Xc)
             sils.append(sil); chs.append(ch); dbs.append(db)
             ks.append(bgm_effective_k(Xc, args.bgm_ceiling))
-        print(f"shift={shift}sd: Silhouette={np.mean(sils):.4f} (SD {np.std(sils):.4f}) "
+            effs.append(effective_separation_sd(Xc, SPARSE_FEATURES, labels))
+        print(f"shift={shift}sd (nominal; effective post-standardization sep.={np.mean(effs):.2f}sd): "
+              f"Silhouette={np.mean(sils):.4f} (SD {np.std(sils):.4f}) "
               f"CH={np.mean(chs):.3f} DB={np.mean(dbs):.3f} | "
               f"BGM effective-k (mean of medians)={np.mean(ks):.2f}")
         sparse_results[str(shift)] = {
             "silhouette_mean": float(np.mean(sils)), "silhouette_sd": float(np.std(sils)),
             "ch_mean": float(np.mean(chs)), "db_mean": float(np.mean(dbs)),
             "bgm_effective_k_mean": float(np.mean(ks)),
+            "effective_separation_sd": float(np.mean(effs)),
         }
     results["sparse"] = sparse_results
 
     print(f"\n--- FULL: structure planted on all {p} features, shift={args.full_shift_sd}sd ---")
-    sils, chs, dbs, ks = [], [], [], []
+    sils, chs, dbs, ks, effs = [], [], [], [], []
     for _ in range(args.n_reps):
-        Xc, _ = plant_clusters(X, list(X.columns), args.full_shift_sd, rng)
+        Xc, labels = plant_clusters(X, list(X.columns), args.full_shift_sd, rng)
         sil, ch, db = ward_indices(Xc)
         sils.append(sil); chs.append(ch); dbs.append(db)
         ks.append(bgm_effective_k(Xc, args.bgm_ceiling))
-    print(f"Silhouette={np.mean(sils):.4f} (SD {np.std(sils):.4f}) CH={np.mean(chs):.3f} "
+        effs.append(effective_separation_sd(Xc, list(X.columns), labels))
+    print(f"nominal shift={args.full_shift_sd}sd (effective post-standardization sep.={np.mean(effs):.2f}sd): "
+          f"Silhouette={np.mean(sils):.4f} (SD {np.std(sils):.4f}) CH={np.mean(chs):.3f} "
           f"DB={np.mean(dbs):.3f} | BGM effective-k (mean of medians)={np.mean(ks):.2f}")
     results["full"] = {
         "silhouette_mean": float(np.mean(sils)), "silhouette_sd": float(np.std(sils)),
         "ch_mean": float(np.mean(chs)), "db_mean": float(np.mean(dbs)),
         "bgm_effective_k_mean": float(np.mean(ks)),
+        "effective_separation_sd": float(np.mean(effs)),
     }
 
     os.makedirs(RESULTS_DIR, exist_ok=True)

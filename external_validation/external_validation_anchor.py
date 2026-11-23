@@ -139,22 +139,27 @@ for sid, val in composite_primary.sort_values(ascending=False).items():
 
 # Bootstrap over CK's reference-source uncertainty only (see 04_probabilistic_evidence_score.py's
 # docstring for why CRP is excluded: no real subject-level sample size behind its "1.5-3x"
-# summary).
+# summary). Vectorized over all draws at once, matching 04_probabilistic_evidence_score.py --
+# an external review found the reported interval's upper bound sat within Monte Carlo noise of
+# the 97.5th-percentile decision boundary at the earlier 3000-draw count; the vectorized draw
+# makes a much larger count (20000, up from 3000) computationally free.
 rng = np.random.default_rng(42)
-n_bootstrap = 3000
+n_bootstrap = 20000
 ck_ref = REFERENCES["CK"]
 se_mu, se_sd = published_ci_log_mu_sd_se(ck_ref)
-boot_n_above = []
-for _ in range(n_bootstrap):
-    mu_b = rng.normal(ck_ref["log_mu"], se_mu)
-    sd_b = max(rng.normal(ck_ref["log_sd"], se_sd), 1e-3)
-    z_b = one_sided_z(ck_max, mu_b, sd_b)
-    boot_n_above.append(int((z_b > ATTENTION_CUTOFF).sum()))
+mu_b = rng.normal(ck_ref["log_mu"], se_mu, size=n_bootstrap)
+sd_b = np.clip(rng.normal(ck_ref["log_sd"], se_sd, size=n_bootstrap), 1e-3, None)
+log_ck = np.log(ck_max.values)[:, None]
+z_b = np.maximum((log_ck - mu_b[None, :]) / sd_b[None, :], 0.0)
+boot_n_above = (z_b > ATTENTION_CUTOFF).sum(axis=0)
 
-boot_n_above = np.array(boot_n_above)
 ci_lo, ci_hi = np.percentile(boot_n_above, [2.5, 97.5])
+# Continuous companion metric to the discrete CI -- see 04_probabilistic_evidence_score.py's
+# matching comment for why this is reported alongside it.
+frac_at_least_1 = float((boot_n_above >= 1).mean())
 print(f"\nBootstrap over CK's reference-source uncertainty only ({n_bootstrap} draws): "
-      f"median n above cutoff={np.median(boot_n_above):.0f}, 95% CI=[{ci_lo:.0f}, {ci_hi:.0f}]")
+      f"median n above cutoff={np.median(boot_n_above):.0f}, 95% CI=[{ci_lo:.0f}, {ci_hi:.0f}], "
+      f"fraction of draws with >=1 subject above cutoff={frac_at_least_1*100:.1f}%")
 
 # Also report CK against its reference interval directly (same style as manuscript's
 # "Literature-Informed Classification" subsection). LDH is intentionally NOT compared against

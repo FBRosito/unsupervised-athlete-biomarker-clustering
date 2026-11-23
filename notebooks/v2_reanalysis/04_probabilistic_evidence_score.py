@@ -80,7 +80,7 @@ reproduce the manuscript's numbers -- only the real, non-public cohort does that
 Data Availability Statement).
 
 Usage:
-    python 04_probabilistic_evidence_score.py [--data-path PATH] [--n-bootstrap 3000]
+    python 04_probabilistic_evidence_score.py [--data-path PATH] [--n-bootstrap 20000]
 """
 import json
 import os
@@ -143,10 +143,14 @@ def weighted_composite(Z, weights):
 
 def main():
     parser = get_arg_parser(__doc__)
-    parser.add_argument("--n-bootstrap", type=int, default=3000,
+    parser.add_argument("--n-bootstrap", type=int, default=20000,
                          help="Bootstrap draws over CK's reference-source uncertainty only (not "
                               "over the evaluated sample, and not over CRP -- see module "
-                              "docstring).")
+                              "docstring). Raised from an earlier 3000 after an external review "
+                              "found the reported interval's upper bound sat within Monte Carlo "
+                              "noise of the 97.5th-percentile decision boundary at that draw "
+                              "count; the fully vectorized draw below makes a much larger count "
+                              "computationally free.")
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--floor-fraction-threshold", type=float, default=0.3,
                          help="If this fraction (or more) of CRP_Pre values sit at the assay "
@@ -217,20 +221,27 @@ def main():
     print(f"Full composite (CK+CRP, diagnostic only): mean={composite_full.mean():.3f}, "
           f"above cutoff={n_above_full}/{n}")
 
+    # Vectorized over all n_bootstrap draws at once (one draw each of mu, sigma; evaluated
+    # against every subject in a single broadcast), not a per-draw Python loop: this is what
+    # makes a bootstrap count two orders of magnitude larger than before computationally free.
     rng = np.random.default_rng(args.random_state)
     ck_ref = REFERENCES["CK"]
     se_mu, se_sd = published_ci_log_mu_sd_se(ck_ref)
-    boot_n_above = []
-    for _ in range(args.n_bootstrap):
-        mu_b = rng.normal(ck_ref["log_mu"], se_mu)
-        sd_b = max(rng.normal(ck_ref["log_sd"], se_sd), 1e-3)
-        z_b = one_sided_z(ck_val, mu_b, sd_b)
-        boot_n_above.append(int((z_b > ATTENTION_CUTOFF).sum()))
+    mu_b = rng.normal(ck_ref["log_mu"], se_mu, size=args.n_bootstrap)
+    sd_b = np.clip(rng.normal(ck_ref["log_sd"], se_sd, size=args.n_bootstrap), 1e-3, None)
+    log_ck = np.log(ck_val.values)[:, None]  # (n, 1)
+    z_b = np.maximum((log_ck - mu_b[None, :]) / sd_b[None, :], 0.0)  # (n, n_bootstrap)
+    boot_n_above = (z_b > ATTENTION_CUTOFF).sum(axis=0)
 
-    boot_n_above = np.array(boot_n_above)
     ci_lo, ci_hi = np.percentile(boot_n_above, [2.5, 97.5])
+    # The discrete count's percentile can itself sit close to a decision boundary (as the above
+    # draw count was raised specifically to address); the fraction of draws with >=1 subject
+    # above cutoff is continuous and does not share that discreteness, so it is reported
+    # alongside the CI rather than in place of it.
+    frac_at_least_1 = float((boot_n_above >= 1).mean())
     print(f"\nBootstrap over CK's reference-source uncertainty only ({args.n_bootstrap} draws): "
-          f"median n above cutoff={np.median(boot_n_above):.0f}, 95% CI=[{ci_lo:.0f}, {ci_hi:.0f}]")
+          f"median n above cutoff={np.median(boot_n_above):.0f}, 95% CI=[{ci_lo:.0f}, {ci_hi:.0f}], "
+          f"fraction of draws with >=1 subject above cutoff={frac_at_least_1*100:.1f}%")
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
     result = {
@@ -242,6 +253,7 @@ def main():
         "composite_full_diagnostic": {"mean": float(composite_full.mean()), "n_above_cutoff": n_above_full},
         "bootstrap_n_above_cutoff_ck_only": {
             "median": float(np.median(boot_n_above)), "ci95": [float(ci_lo), float(ci_hi)],
+            "n_bootstrap": args.n_bootstrap, "fraction_at_least_1": frac_at_least_1,
         },
     }
     with open(os.path.join(RESULTS_DIR, "04_probabilistic_evidence_score_result.json"), "w") as f:
